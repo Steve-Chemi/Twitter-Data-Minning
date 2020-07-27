@@ -1,0 +1,340 @@
+---
+title: "TwitterProjectt"
+author: "Steve CHEMI"
+date: "4/28/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(rtweet)
+library(data.table)
+library(quanteda)
+library(ggplot2)
+library(sentimentr)
+library(tidytext)
+library(dendextend)
+library(magrittr)
+require(topicmodels)
+
+```
+
+
+
+
+
+```{r}
+load('C:/Users/steve/OneDrive/Documents/R/NLP/Envitweets.RData')
+
+
+```
+
+### Ploting a histogram to see the amount of data each day, each minute ###
+
+
+
+```{r}
+ggplot(tweets.df, aes(x=created_at)) +
+  geom_histogram(aes(y=..count..), #make histogram
+                 binwidth=60, #each bar contains number of tweets during 60 s
+                 colour="blue", #colour of frame of bars
+                 fill="blue", #fill colour for bars
+                 alpha=0.8) + # bars are semi transparant
+  ggtitle(paste0("Activity ",number.of.tweets," tweets")) + #title
+  scale_y_continuous(name="Number of Tweets per minute") + 
+  scale_x_datetime(name = "Time") +
+  theme_minimal(base_family="Times New Roman")
+```
+
+
+
+
+
+```{r}
+```
+
+### Word Frequency ###
+
+```{r}
+dfFreq <- textstat_frequency(dfmat_corp_twitter) %>% as.data.table
+ggplot(dfFreq[1:50,], aes(x=feature, y=frequency)) + 
+  geom_col() +
+  coord_flip() +
+  theme_minimal()
+
+ggplot(dfFreq[1:50,], aes(x=reorder(feature, -rank), y=frequency)) + 
+  geom_col() +
+  coord_flip() +
+  labs(x = "Stemmed word", y = "Count") +
+  theme_minimal(base_family="Times New Roman")
+```
+
+
+
+
+
+### A more elegant but perhaps less useful way of showing the word-frequencies are with ###
+
+```{r}
+textplot_wordcloud(dfmat_corp_twitter, min_count = 6, random_order = FALSE,
+                   rotation = .25,
+                   color = RColorBrewer::brewer.pal(8, "Dark2"))
+
+```
+
+
+```{r}
+dfFreq_long_top20 = dfFreq[rank <= 20] %>% 
+   melt(id.vars = c("feature","group","rank"),
+        measure.vars = c("frequency","docfreq")
+)
+
+
+ggplot(dfFreq_long_top20, aes(x=reorder(feature,-rank), y=value, fill = variable)) + 
+   geom_bar(position="dodge", stat="identity") +
+   scale_x_discrete() + 
+   labs(x = "", y = "Occurances", fill = "") +
+   coord_flip() +
+   theme_minimal()
+```
+
+
+
+
+```{r}
+TokensStemmed <- tokens_remove(tok_tweets, words.to.remove)
+
+dfm2 <- dfm(tokens_ngrams(TokensStemmed,n=2))
+
+dfFreq2 <- textstat_frequency(dfm2)
+
+ggplot(dfFreq2[1:40,], aes(x=reorder(feature, frequency), y=frequency)) + 
+   geom_col() +
+   coord_flip() +
+   scale_x_discrete(name = "2 gram") +
+   theme(text=element_text(size=12, family="Times New Roman"))
+
+TokensStemmed <- tokens_remove(tok_tweets, words.to.remove)
+
+dfm3 <- dfm(tokens_ngrams(TokensStemmed,n=3))
+
+dfFreq3 <- textstat_frequency(dfm3)
+
+ggplot(dfFreq3[1:40,], aes(x=reorder(feature, frequency), y=frequency)) + 
+   geom_col() +
+   coord_flip() +
+   scale_x_discrete(name = "3 gram") +
+   theme(text=element_text(size=12, family="Times New Roman"))
+```
+
+
+
+
+
+```{r}
+dtm <- convert(dfmat_corp_twitter, to = "topicmodels")
+lda <- LDA(dtm, k = 6, control=list(seed=12))
+
+terms(lda, 8) %>% utf8::utf8_print()
+```
+
+
+###Make a document feature matrix with 2-grams only. (To make one with 1-gram and 2-grams, use n = 1:2)
+
+```{r}
+dfm2 <- dfm(tokens_ngrams(TokensStemmed,n=2))
+dfm2 <- convert(dfm2, to = "topicmodels")
+lda2 <- LDA(dfm2, k = 6, control=list(seed=123))
+terms(lda2, 8)
+```
+
+
+
+
+###Make a document feature matrix with 3-grams only. (To make one with 1-gram and 2-grams, use n = 1:2).###
+
+
+```{r}
+dfm3 <- dfm(tokens_ngrams(TokensStemmed,n=3))
+dfm3 <- convert(dfm3, to = "topicmodels")
+lda3 <- LDA(dfm3, k = 6, control=list(seed=123))
+terms(lda3, 8)
+```
+
+
+
+###We here have 6 topics list and we want to have a better view about the intesity in tweets about each topic.####
+
+
+```{r}
+topicAssignment2grams = 
+   data.table(
+      index = lda2 %>% 
+         topics %>% 
+         names %>% 
+         gsub("text","", .) 
+      %>% as.integer,
+      topic = lda2 %>% topics
+   )
+tweets.df$Topic2gram = NA # creates a new col ‘topic’, assign it to NA
+tweets.df$Topic2gram[topicAssignment2grams$index] = topicAssignment2grams$topic
+tweets.df$Topic2gram = tweets.df$Topic2gram %>% as.factor
+```
+
+```{r}
+ggplot(tweets.df, aes(x=created_at, y=Topic2gram, col=Topic2gram)) +
+   geom_jitter(aes(size = retweet_count)) +
+   ggtitle(paste0("Each dot is a tweet matching '",query,"'")) +
+   scale_y_discrete() +
+   scale_x_datetime(name = "") + 
+   scale_color_discrete(guide = FALSE) + 
+   scale_size_continuous(name="Retweets")
+```
+####We use a different graph to have a different view of the topics and their intensity####
+
+```{r}
+
+```
+
+
+
+
+
+```{r}
+
+tweets.df[!is.na(Topic2gram),
+          list(
+             TotalTweets = .N, 
+             TotalReactions=sum(retweet_count, na.rm = TRUE) + 
+                sum(favorite_count, na.rm = TRUE)+
+                sum(reply_count, na.rm = TRUE)+
+                sum(quote_count, na.rm = TRUE),
+             Reach = sum(followers_count)/10000
+             ), 
+          by = Topic2gram] %>% 
+   melt(id.vars = "Topic2gram") %>% 
+   ggplot(aes(x = Topic2gram, y = value, fill=variable)) +
+      geom_bar(position="dodge", stat="identity") + 
+      scale_fill_discrete(name= "", breaks=c("TotalTweets","TotalReactions","Reach"), labels = c("Tweets","Reactions","Reach in 10,000s")) + 
+      scale_y_continuous(name = "Count")
+topicAssignment3grams = 
+   data.table(
+      index = lda3 %>% 
+         topics %>% 
+         names %>% 
+         gsub("text","", .) 
+      %>% as.integer,
+      topic = lda3 %>% topics
+   )
+tweets.df$Topic3gram = NA # creates a new col ‘topic’, assign it to NA
+tweets.df$Topic3gram[topicAssignment3grams$index] = topicAssignment3grams$topic
+tweets.df$Topic3gram = tweets.df$Topic3gram %>% as.factor
+tweets.df[!is.na(Topic3gram),
+          list(
+             TotalTweets = .N, 
+             TotalReactions=sum(retweet_count, na.rm = TRUE) + 
+                sum(favorite_count, na.rm = TRUE)+
+                sum(reply_count, na.rm = TRUE)+
+                sum(quote_count, na.rm = TRUE),
+             Reach = sum(followers_count)/10000
+             ), 
+          by = Topic3gram] %>% 
+   melt(id.vars = "Topic3gram") %>% 
+   ggplot(aes(x = Topic3gram, y = value, fill=variable)) +
+      geom_bar(position="dodge", stat="identity") + 
+      scale_fill_discrete(name= "", breaks=c("TotalTweets","TotalReactions","Reach"), labels = c("Tweets","Reactions","Reach in 10,000s")) + 
+      scale_y_continuous(name = "Count")
+```
+
+
+####We are now going to focus on the sentiment analysis to have a better view about the influence of each word in its topic and globally####
+
+```{r}
+
+df <- tweets.df[,.(created_at,text,Topic2gram)]
+setDT(df)
+```
+
+
+#### We are now going to create cuts every 5 minutes ####
+
+```{r}
+df$roundTime <- as.POSIXct(cut(df$created_at, breaks = "5 mins"))
+df$text[1]
+
+df$text[1] %>% get_sentences 
+df$text[1] %>% get_sentences %>% sentiment
+```
+
+####We will read the FrenchAdj.csv downloaded from Campus####
+
+```{r}
+fr_keys <-read.csv("C:/Users/steve/Downloads/frenchAdj.csv")
+head(fr_keys)
+```
+
+#### Now, as in the lecture, we remove the Index X####
+
+```{r}
+fr_keys <- fr_keys[,2:3]
+```
+
+
+```{r}
+head(fr_keys)
+fr_keys <- as_key(fr_keys)
+```
+
+```{r}
+head(fr_keys)
+```
+
+
+
+```{r}
+df$roundTime <- as.POSIXct(cut(df$created_at, breaks = "5 mins"))
+df$text[1]
+
+df$text[1] %>% get_sentences 
+df$text[1] %>% get_sentences %>% sentiment(polarity_dt = fr_keys)
+```
+
+````{r}
+sentiment_by_tweet = 
+   df[,
+      list(text %>% get_sentences %>% sentiment_by(polarity_dt = fr_keys),
+           Topic2gram)]
+```
+
+```{r}
+sentiment_by_Topic = 
+   sentiment_by_tweet[, list(Tweets = .N,
+           ave_sentiment = mean(ave_sentiment),
+           sd_sentiment = sd(ave_sentiment),
+           Total_word_count = sum(word_count)),
+      by = Topic2gram]
+sentiment_by_Topic
+```
+
+
+
+
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
